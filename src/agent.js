@@ -10,6 +10,7 @@ const { runHook } = require('./hooks');
 const { buildCapabilitiesText } = require('./capabilities');
 const { Metrics } = require('./metrics');
 const { maybeLearnFromCorrection } = require('./learn');
+const { synthesize, checkEligible } = require('./synth');
 const { estimateCost } = require('./cost');
 
 const DEBUG = process.env.CLAUDEFISH_DEBUG === '1';
@@ -332,6 +333,7 @@ class Agent {
     const tStart = Date.now();
     let totalToolCalls = 0;
     let hadApiError = false;
+    let hadToolError = false;
     sess.busy = true;
     sess.busyStart = tStart;
     sess.currentTurn = 0;
@@ -434,6 +436,7 @@ class Agent {
           if (isError) {
             consecutiveErrors++;
             erroredOnce = true;
+            hadToolError = true;
             lastErrorMsg = `${tu.name}: ${String(result).slice(0, 200)}`;
             if (consecutiveErrors >= 3 && sendAlert) {
               const assistantName = this.config?.persona?.name || 'the assistant';
@@ -506,6 +509,31 @@ class Agent {
         catch (e) { console.error(`[learn] bg: ${e.message}`); }
       })();
     }
+
+    // Skill auto-synthesis — detached, fire-and-forget. Same budget gate as
+    // auto-learn: skip if user is over daily budget.
+    const autoSynthesize = this.config.skills?.autoSynthesize !== false;
+    const elig = checkEligible({
+      totalToolCalls,
+      hadApiError,
+      hadToolError,
+      userText,
+      autoSynthesize
+    });
+    if (elig.eligible && learnAllowed) {
+      const historySnapshot = sess.history.slice(-40); // cap context
+      const credsLoc = this.credsLoc;
+      const skillsDir = this.skillsDir;
+      const notify = sendAlert || null;
+      (async () => {
+        try {
+          const r = await synthesize({ credsLoc, skillsDir, history: historySnapshot, notifyUser: notify });
+          if (r.wrote) console.log(`[synth] wrote skill: ${r.name}`);
+          else if (r.reason !== 'not useful' && r.reason !== 'already exists') console.log(`[synth] skipped: ${r.reason}`);
+        } catch (e) { console.error(`[synth] bg: ${e.message}`); }
+      })();
+    }
+
     await runHook(this.hooks, 'postMessage', { ...hookCtx, reply: finalText });
     this._logTurn(userId, { type: 'reply', chars: finalText.length, model: sess.model, profile: sess.profile, latencyMs });
     // Accumulate onto the session for /status display (#5 cache telemetry).

@@ -10,10 +10,11 @@ const { Agent } = require('./agent');
 const { TelegramBot } = require('./telegram');
 const { DeliveryQueue } = require('./queue');
 const { loadHooks } = require('./hooks');
-const { Scheduler } = require('./cron');
+const { Scheduler, cronValid, cronNext, cronToHuman } = require('./cron');
 const { spawnSubagent } = require('./subagent');
 const { PROFILES } = require('./tools');
-const { loadSkills } = require('./skills');
+const { loadSkills, loadSkillByName, sanitizeSkillName } = require('./skills');
+const { quickJSON } = require('./quickcall');
 const { ApprovalStore, scopeFor } = require('./approvals');
 const { Receipts } = require('./receipts');
 const { BackgroundTasks } = require('./background');
@@ -73,6 +74,9 @@ const HELP = `commands:
 /remind <minutes> <prompt> — schedule a nudge
 /reminders — list pending
 /cancel <id> — cancel reminder
+/cron <natural-language> — schedule a recurring task (e.g. "every Friday at 5pm summarize my week")
+/skill list — list available skills
+/skill <name> — inject a saved skill into the next turn
 /notes — list your memory keys
 /skills — list loaded skills
 /context — list loaded context files
@@ -506,6 +510,72 @@ async function main() {
     }
     const mCancel = text.match(/^\/cancel\s+(\S+)$/);
     if (mCancel) { scheduler.remove(mCancel[1]); return bot.send(chatId, `cancelled ${mCancel[1]}`); }
+
+    const mCron = text.match(/^\/cron(?:\s+([\s\S]+))?$/);
+    if (mCron) {
+      const desc = (mCron[1] || '').trim();
+      if (!desc) return bot.send(chatId, 'usage: /cron <description>  (e.g. `/cron every Friday at 5pm summarize my week`)');
+      const system = [
+        'You convert natural-language schedule descriptions into crontab expressions.',
+        'Output STRICTLY a JSON object: {"cron": "<m h dom mon dow>", "task": "<cleaned task text>", "confidence": "high"|"medium"|"low"}.',
+        'Use 5-field crontab (minute hour day-of-month month day-of-week).',
+        'If the description is ambiguous, pick the most reasonable interpretation and set confidence: "low".',
+        'Return only the JSON, no commentary.'
+      ].join('\n');
+      let parsed;
+      try {
+        const r = await quickJSON(credsLoc, { system, user: desc, maxTokens: 400 });
+        if (!r.ok) return bot.send(chatId, `couldn't parse, try rephrasing.\n\nraw response:\n\`\`\`\n${(r.raw || '').slice(0, 500)}\n\`\`\``);
+        parsed = r.json;
+      } catch (e) {
+        return bot.send(chatId, `cron parse error: ${scrubMessage(e).slice(0, 300)}`);
+      }
+      const cronStr = String(parsed.cron || '').trim();
+      const task = String(parsed.task || desc).trim();
+      const confidence = String(parsed.confidence || 'medium').toLowerCase();
+      if (!cronValid(cronStr)) {
+        return bot.send(chatId, `couldn't parse, try rephrasing.\n\nraw response:\n\`\`\`\n${JSON.stringify(parsed).slice(0, 500)}\n\`\`\``);
+      }
+      const human = cronToHuman(cronStr);
+      const nextTs = cronNext(cronStr, Date.now());
+      const nextStr = nextTs ? new Date(nextTs).toLocaleString() : '(none within 4y)';
+      const warn = confidence === 'low' ? '\n\n⚠️ *low confidence* — double-check this is what you meant.' : '';
+      const promptBody = [
+        `📅 Parsed: \`${cronStr}\`  →  ${human}`,
+        `task: ${task}`,
+        `next fire: ${nextStr} (server time)${warn}`
+      ].join('\n');
+      // Send the human-readable summary first, then reuse the existing
+      // inline-keyboard approval for Yes/No. `cron_schedule` is a pseudo tool name.
+      await bot.send(chatId, promptBody);
+      const ok = await bot.requestApproval(chatId, 'cron_schedule', { cron: cronStr, task });
+      if (!ok) return; // silent cancel on No or timeout
+      const entry = scheduler.add({ whenTs: nextTs, prompt: task, chatId, fromId, cronExpr: cronStr });
+      return bot.send(chatId, `✅ scheduled ${entry.id} — ${human}\ntask: ${task}\nnext fire: ${nextStr} (server time)`);
+    }
+
+    const mSkillList = text.match(/^\/skill\s+list$/);
+    if (mSkillList || text === '/skill') {
+      const s = loadSkills(skillsDir);
+      if (!s.length) return bot.send(chatId, '(no skills yet — they appear automatically after productive multi-step sessions, or write markdown files to data/skills/)');
+      return bot.send(chatId, s.map(x => `• \`${x.name}\`  triggers: ${x.triggers.join(', ') || '(none)'}`).join('\n'));
+    }
+    const mSkill = text.match(/^\/skill\s+(\S+)$/);
+    if (mSkill && mSkill[1] !== 'list') {
+      const safe = sanitizeSkillName(mSkill[1]);
+      const sk = loadSkillByName(skillsDir, safe);
+      if (!sk) return bot.send(chatId, `no skill \`${safe}\`. try /skill list`);
+      // Inject skill body into the session as a user-invisible system-style primer by
+      // prepending a [skill primer] note to the next user turn. Simpler than mutating
+      // system blocks and survives the existing respond() flow.
+      const sess = agent.session(fromId);
+      sess.history.push({
+        role: 'user',
+        content: `[skill primer: ${sk.name}]\n${sk.body}\n\n(You have been primed with the skill above. Apply it to my next message.)`
+      });
+      sess.history.push({ role: 'assistant', content: `Loaded skill: ${sk.name}.` });
+      return bot.send(chatId, `🧠 primed with skill \`${sk.name}\`. your next message will use it.`);
+    }
     if (text === '/notes') {
       const mem = buildUserMemory(fromId);
       return bot.send(chatId, mem.list().join('\n') || '(no notes)');
@@ -1154,6 +1224,8 @@ async function main() {
     { command: 'remind',    description: 'schedule a nudge: <minutes> <prompt>' },
     { command: 'reminders', description: 'list pending reminders' },
     { command: 'cancel',    description: 'cancel a reminder by id' },
+    { command: 'cron',      description: 'natural-language cron: /cron <description>' },
+    { command: 'skill',     description: 'skills: /skill list | /skill <name>' },
     { command: 'notes',     description: 'list memory keys' },
     { command: 'journal',   description: 'read journal: [today|yesterday|YYYY-MM-DD]' },
     { command: 'skills',    description: 'list loaded skills' },

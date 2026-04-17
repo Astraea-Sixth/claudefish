@@ -30,6 +30,10 @@
     "userDailyBudgetUsd": null,
     "twoPhaseClaudeCode": false
   },
+  "skills": {
+    "_comment": "autoSynthesize: after a successful multi-step session (>=3 tool calls, no errors), a background Haiku call may generate a reusable skill file under data/skills/. Set false to disable.",
+    "autoSynthesize": true
+  },
   "stt": {
     "_comment": "Voice transcription via Groq. When set, audio bytes are uploaded to api.groq.com. Omit this block to keep voice local-only.",
     "provider": "groq",

@@ -34,17 +34,40 @@ function matchSkills(skills, text) {
   return skills.filter(s => s.triggers.length && s.triggers.some(tr => t.includes(tr)));
 }
 
-function writeSkill(dir, { name, triggers = [], body = '' }) {
+function sanitizeSkillName(name) {
+  return String(name || '').replace(/[^a-z0-9._-]/gi, '_').slice(0, 60) || 'skill';
+}
+
+function skillExists(dir, name) {
+  return fs.existsSync(path.join(dir, `${sanitizeSkillName(name)}.md`));
+}
+
+function loadSkillByName(dir, name) {
+  const safe = sanitizeSkillName(name);
+  const f = path.join(dir, `${safe}.md`);
+  if (!fs.existsSync(f)) return null;
+  return parseSkill(fs.readFileSync(f, 'utf8'), `${safe}.md`);
+}
+
+function writeSkill(dir, { name, triggers = [], body = '', extra = {} }) {
   fs.mkdirSync(dir, { recursive: true });
-  const safe = name.replace(/[^a-z0-9._-]/gi, '_').slice(0, 60) || 'skill';
+  const safe = sanitizeSkillName(name);
   // Strip anything that could break frontmatter: newlines, YAML fence markers.
   const safeName = String(name).replace(/[\r\n]+/g, ' ').replace(/^---+|---+$/g, '').slice(0, 200);
   const safeTriggers = triggers
     .map(t => String(t).replace(/[\r\n,]+/g, ' ').trim())
     .filter(Boolean);
-  const fm = `---\nname: ${safeName}\ntriggers: ${safeTriggers.join(', ')}\n---\n${body}`;
+  const extraLines = Object.entries(extra || {})
+    .map(([k, v]) => {
+      const safeKey = String(k).replace(/[^a-z0-9_]/gi, '');
+      const safeVal = String(v).replace(/[\r\n]+/g, ' ').slice(0, 200);
+      return safeKey ? `${safeKey}: ${safeVal}` : '';
+    })
+    .filter(Boolean);
+  const fmLines = [`name: ${safeName}`, `triggers: ${safeTriggers.join(', ')}`, ...extraLines];
+  const fm = `---\n${fmLines.join('\n')}\n---\n${body}`;
   fs.writeFileSync(path.join(dir, `${safe}.md`), fm, 'utf8');
   return { name: safe };
 }
 
-module.exports = { loadSkills, matchSkills, writeSkill };
+module.exports = { loadSkills, matchSkills, writeSkill, sanitizeSkillName, skillExists, loadSkillByName };

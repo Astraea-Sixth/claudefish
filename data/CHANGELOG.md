@@ -1,5 +1,36 @@
 # Claudefish changelog
 
+## 2026-04-17 — OSS hardening pass + NL cron + auto-synthesized skills
+
+### Added
+- **Natural-language cron** (`/cron <description>`): parses phrases like `every Friday at 5pm summarize my week` into a 5-field crontab via a quick Haiku call; gates on Yes/No confirmation before persisting. New helpers in `src/cron.js`: `cronValid`, `cronNext`, `cronToHuman`. Recurring entries store `cronExpr`; scheduler recomputes next fire time after each run.
+- **Auto-synthesized skills** (`skills.autoSynthesize`, default `true`): after a successful multi-step session (≥3 tool calls, no errors, no correction signal), a background Haiku call may generate a reusable skill file under `data/skills/`. Opt out with `"skills": { "autoSynthesize": false }`.
+- `/skill list` and `/skill <name>` commands to browse and prime the next turn with a saved skill's body.
+- `persona` config block (`name`, `userLabel`, `assistantLabel`) for lightweight personalization without editing `soul.md`.
+- `src/quickcall.js` — one-shot `quickJSON` helper used by cron parse + skill synth (single Haiku call, JSON-only reply).
+
+### Changed
+- `/cc` env: stripped to a whitelist (`PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_*`, `TERM`) so parent-process secrets don't leak to the Claude Code subprocess.
+- Tool-approval defaults: `tools.autoApprove` treats only `true` as "blanket-trust everything"; any array/string value is treated as fail-closed (no more implicit blanket-trust from truthy non-booleans).
+- `doc_write` approval scope: refuses match-all prefixes; only approves the exact path it saw (see S3 fix below).
+- Persona files (`soul.md`, `overlay.md`, `agents.md`) hot-reload on mtime change — no restart needed.
+
+### Fixed
+- **S1 (bash_exec scope was effectively global)**: `scopeFor('bash_exec')` now tokenizes `argv[0]` (`cmd0=…`) and refuses scope on any shell metacharacter → fresh prompt every time instead of prefix-trust footgun.
+- **S3 (doc_write blanket-trust on zero-prefix path)**: per-file approval now required.
+- **S4 (url_fetch redirect bypass)**: `httpGet` runs with `followRedirects: false`; the handler walks hops manually and re-requests approval on every redirect past hop 0; loop detection at 5 hops.
+- **A9 (persona hot-reload)**: `_systemBlocks` now stats each persona file per turn and re-reads only on mtime change.
+- **A10 (background task persistence)**: `data/background.jsonl` records spawn + finish; boot-time recovery marks any `running` rows as `interrupted` and queues a notification.
+- **C10 (cost estimate)**: `summarize()` now emits `tokensByModel`; `estimateCost()` prices each model's tokens at its own rate.
+- HELP text gap: `/trusts` and `/forget` now listed.
+- Debug log spam (A14/A15): `[claude]` and `[agent]` prints gated behind `CLAUDEFISH_DEBUG=1`.
+
+### Security
+- **SSRF guard (`src/net.js`)**: webhook registration and every outbound POST run through `isPublicUrl()`, which rejects loopback / RFC1918 / link-local / CGNAT / unique-local / `::1` and resolves hostnames before allowing. `/hook add` refuses private URLs up front.
+- **`bash_exec` always prompts**: any shell metacharacter or command drift voids the scope, so blanket-trust can't escalate to an arbitrary command.
+- **Fail-closed `autoApprove`**: only `true` is blanket-trust; anything else falls through to the approval prompt.
+- **Env whitelist for `/cc`**: the Claude Code subprocess only sees a minimal, explicit env; no accidental credential passthrough.
+
 ## 2026-04-16 — Full-audit fixes (S1/S3/S4/A9/A10/C10 + polish)
 - **S1 (bash scope was effectively global)**: `scopeFor('bash_exec')` now tokenizes `argv[0]` (`cmd0=npm`) and refuses scope entirely (returns `null` → fresh prompt every time) on any shell metacharacter `;|&><$()`\\\n` or `&&`/`||`. No more prefix-trust footgun.
 - **S3 (doc_write zero-prefix blanket trust)**: refuses scope for paths without a directory separator → per-file approval instead of match-all via `startsWith('')`.

@@ -142,6 +142,8 @@ want one. All three hot-reload on file change; no restart needed.
 - **Webhooks** — POST to external URLs on background task completion
 - **PR mode** — Claude Code can create draft PRs via `gh`
 - **Classic mode** — `/cd`, `/ls`, `/cat`, `/git`, `/cc` for terminal-style control
+- **Natural-language scheduling** — `/cron every Friday at 5pm summarize my week` (Haiku-parsed, Yes/No confirmed)
+- **Auto-synthesized skills** — after clean multi-step sessions, the bot may write a reusable skill file so next time is one-shot
 
 ## Commands
 
@@ -159,10 +161,15 @@ want one. All three hot-reload on file change; no restart needed.
 /trusts        Show trusted tool approvals
 /receipts      Show + verify approval chain
 /remind        Set a reminder
+/cron <desc>   Schedule a recurring task from natural language
+/skill list    List saved skills (auto + hand-written)
+/skill <name>  Prime the next turn with a saved skill
 /stop          Kill running tool
 /busy          Show what's running
 /cc <task>     Direct Claude Code passthrough (bypasses agent loop)
 ```
+
+Full list + descriptions: type `/help` in Telegram or read `HELP` in `src/index.js`.
 
 ## Configuration
 
@@ -176,6 +183,7 @@ See `config.example.json`. Main knobs:
 | `tools.bash` | Enable bash execution (off by default) |
 | `tools.autoApprove` | Tool patterns to approve without prompting |
 | `tools.userDailyBudgetUsd` | Hard daily spend cap |
+| `skills.autoSynthesize` | After a successful multi-step session (>=3 tool calls, no errors), auto-generate a reusable skill under `data/skills/`. Default `true`. Set `false` to opt out. |
 | `persona.*` | Name and labels |
 
 ## Security notes
@@ -185,6 +193,12 @@ See `config.example.json`. Main knobs:
 - Bot tokens can be rotated any time via @BotFather
 - All data stays on your machine; nothing is uploaded except Claude API calls
 - `tools.bash` is **off by default** — enable only if you trust the setup
+- **`bash_exec` always prompts** if the command has any shell metacharacter (`;|&><$()` etc.) — blanket-trust can only cover an exact `argv[0]`
+- **`doc_write` approvals are exact-path** — no match-all-via-empty-prefix trust
+- **SSRF guard**: webhook registration (`/hook add`) and every outbound POST reject loopback / RFC1918 / link-local / CGNAT / `::1` after DNS resolution
+- **`/cc` env whitelist**: Claude Code subprocesses see only `PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_*`, `TERM` — no parent-process credential leak
+- **`tools.autoApprove` fail-closed**: only the literal boolean `true` blanket-trusts everything; any other value falls through to the prompt
+- **Receipts** (`data/receipts.jsonl`): every approval (auto/trusted/approved/denied) is SHA256-chained; `/receipts verify` detects tampering
 - **Voice messages:** if you enable STT (`cfg.stt` with a Groq API key), audio bytes are uploaded to `api.groq.com`. Omit `cfg.stt` to keep voice local-only.
 
 ## Architecture

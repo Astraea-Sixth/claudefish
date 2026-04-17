@@ -62,7 +62,8 @@ function buildCapabilitiesText({ cfg, dataDir, hooks = [], scheduler = null, que
   lines.push('## Commands — core');
   lines.push('- `/help /ping /reset /compact /status /capabilities`');
   lines.push('- `/model /models /profile /think /stream`');
-  lines.push('- `/remind /reminders /cancel`');
+  lines.push('- `/remind /reminders /cancel /cron`');
+  lines.push('- `/skill list` · `/skill <name>` — browse + prime saved skills');
   lines.push('- `/notes /memory /skills /context /hooks /journal`');
   lines.push('- `/search <query>` — ranked FTS5 over journal+memory+sessions');
   lines.push('- `/insights [days]` — usage analytics · `/audit <tool>` · `/usage`');
@@ -97,6 +98,17 @@ function buildCapabilitiesText({ cfg, dataDir, hooks = [], scheduler = null, que
   lines.push(`- When \`claude_code\` returns \`{ authIssue: true }\` — tell ${userLabel} to run \`claude /login\`. Don't retry silently.`);
   lines.push('- `notes_save` now REQUIRES `type` + `description`. Schema will reject you if missing.');
   lines.push(`- Auto-learning: if ${userLabel} corrects you, the system may auto-save the correction as \`feedback\` memory in the background. Don't re-save what's already auto-captured.`);
+  const autoSynth = cfg.skills?.autoSynthesize !== false;
+  lines.push(`- Auto-synthesized skills: after a clean multi-step session (≥3 tool calls, no errors), a background Haiku may write a reusable skill file to \`data/skills/\`. Currently ${autoSynth ? 'ENABLED' : 'disabled'} (\`skills.autoSynthesize\`).`);
+  lines.push('- Natural-language cron: `/cron <description>` → Haiku parses to a 5-field crontab, confirms via Yes/No, then persists to `data/cron.json` and recurs forever.');
+  lines.push('');
+  lines.push('## Security posture (what\'s guarded)');
+  lines.push('- `bash_exec` always prompts if the command contains shell metacharacters; blanket-trust covers only exact `argv[0]` with no special chars.');
+  lines.push('- `doc_write` approvals are exact-path, never prefix-match with empty prefix.');
+  lines.push('- Webhooks + `url_fetch` go through SSRF guard (`isPublicUrl`): blocks loopback/RFC1918/link-local/CGNAT/`::1` and resolves hostnames before allowing.');
+  lines.push('- `/cc` subprocess inherits only a whitelisted env (`PATH/HOME/USER/SHELL/LANG/LC_*/TERM`) so parent secrets don\'t leak.');
+  lines.push('- `tools.autoApprove` is fail-closed: only the literal boolean `true` bypasses every gate; any other value falls through to the prompt.');
+  lines.push('- Every approval (auto, trusted, approved, denied) appends to the SHA256-chained `data/receipts.jsonl`; `/receipts verify` re-walks the chain.');
   lines.push('');
   lines.push('## Known limitations (today)');
   lines.push('- PDF/spreadsheet parsing: text docs only');
