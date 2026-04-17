@@ -1,0 +1,18 @@
+'use strict';
+
+// Centralized magic numbers. Import from here so tweaks touch one spot.
+
+module.exports = {
+  MAX_TURNS: 50,
+  COMPACT_THRESHOLD: 32,
+  COMPACT_KEEP: 14,
+  APPROVAL_TIMEOUT_MS: 120_000,
+  TELEGRAM_CHUNK: 4000,
+  STREAM_TRUNCATE: 3800,
+  STREAM_MIN_FIRST_CHARS: 40,
+  STREAM_MIN_EDIT_MS: 1500,
+  PROGRESS_MIN_EDIT_MS: 2000,
+  TYPING_HEARTBEAT_MS: 4000,
+  WEBHOOK_TIMEOUT_MS: 5000,
+  MEMORY_DECAY_DAYS: 60
+};

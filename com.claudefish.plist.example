@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example LaunchAgent plist for running claudefish on macOS.
+
+  Placeholders to replace before installing:
+    REPO_DIR   - absolute path to your claudefish checkout (directory
+                 containing bin/claudefish). launchd does NOT expand $VAR
+                 or $(…); you must substitute the real path.
+
+  Setup:
+    1. cp com.claudefish.plist.example ~/Library/LaunchAgents/com.claudefish.plist
+    2. Edit the copy: replace every REPO_DIR with the absolute path.
+    3. launchctl load ~/Library/LaunchAgents/com.claudefish.plist
+
+  Architecture note:
+    This plist invokes /bin/bash -lc so your login shell profile
+    (~/.zprofile / ~/.zshrc / ~/.bash_profile) is sourced. That way `node`
+    resolves correctly on BOTH Apple Silicon (/opt/homebrew/bin) and Intel
+    (/usr/local/bin) Macs without hard-coding a node path. If you prefer an
+    explicit node path, replace the ProgramArguments array with
+    <string>/opt/homebrew/bin/node</string> (Apple Silicon) or
+    <string>/usr/local/bin/node</string> (Intel) + <string>REPO_DIR/src/index.js</string>.
+
+  First-run permission prompts:
+    macOS may prompt for keychain access the first time claudefish reads
+    Claude Code credentials. You must approve the prompt on the desktop.
+    If the LaunchAgent starts before you've approved, stop it
+    (`launchctl unload ...`), run `node src/index.js` once from a Terminal,
+    approve the prompt, then reload the agent.
+
+  Logs land under REPO_DIR/data/ so they colocate with the rest of your state.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claudefish</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>exec node "REPO_DIR/src/index.js"</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPO_DIR</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>REPO_DIR/data/claudefish.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>REPO_DIR/data/claudefish.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

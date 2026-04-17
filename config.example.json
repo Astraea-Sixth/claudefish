@@ -1,0 +1,39 @@
+{
+  "_comment": "See README.md for full docs. Copy to config.json and fill in. Never commit config.json — it holds secrets.",
+  "telegram": {
+    "botToken": "PUT_TELEGRAM_BOT_TOKEN_HERE",
+    "allowFrom": ["YOUR_TELEGRAM_USER_ID"],
+    "userAliases": {},
+    "botUsername": null
+  },
+  "model": {
+    "primary": "claude-sonnet-4-6",
+    "fallback": "claude-opus-4-6",
+    "maxTokens": 8192,
+    "thinking": false
+  },
+  "credentials": {
+    "source": "auto",
+    "path": "~/.claude/.credentials.json"
+  },
+  "workspace": "./data",
+  "persona": {
+    "name": "claudefish",
+    "userLabel": "You",
+    "assistantLabel": "Assistant"
+  },
+  "tools": {
+    "bash": false,
+    "fileEdit": true,
+    "memory": true,
+    "autoApprove": [],
+    "userDailyBudgetUsd": null,
+    "twoPhaseClaudeCode": false
+  },
+  "stt": {
+    "_comment": "Voice transcription via Groq. When set, audio bytes are uploaded to api.groq.com. Omit this block to keep voice local-only.",
+    "provider": "groq",
+    "apiKey": null,
+    "model": "whisper-large-v3-turbo"
+  }
+}

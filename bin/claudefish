@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# claudefish CLI — control the bot from anywhere
+# Subcommands: start | stop | restart | status | logs | journal | notes | tail
+
+set -u
+
+# Resolve ROOT as the parent of this script's directory (portable across installs)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLIST="$HOME/Library/LaunchAgents/com.claudefish.plist"
+LABEL="com.claudefish"
+DATA="$ROOT/data"
+LOG="$DATA/claudefish.log"
+ERR="$DATA/claudefish.err.log"
+PID_FILE="$DATA/claudefish.pid"
+
+BOLD=$'\033[1m'
+GREEN=$'\033[32m'
+YELLOW=$'\033[33m'
+RED=$'\033[31m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
+
+USAGE="claudefish — bot control
+
+usage:
+  claudefish start          start the bot (via LaunchAgent)
+  claudefish stop           stop the bot
+  claudefish restart        restart (preserves LaunchAgent auto-start)
+  claudefish status         show pid, uptime, log tail
+  claudefish logs           follow the live log
+  claudefish tail           same as logs
+  claudefish watch          multi-stream live view (log + journal + sessions)
+  claudefish journal [day]  print journal for today | yesterday | YYYY-MM-DD
+  claudefish notes          list memory keys
+  claudefish help           this help"
+
+is_loaded() { launchctl list 2>/dev/null | grep -q "$LABEL"; }
+pid_of()    { launchctl list 2>/dev/null | awk -v l="$LABEL" '$3==l{print $1}'; }
+
+cmd_start() {
+  if is_loaded; then
+    pid=$(pid_of)
+    if [ -n "$pid" ] && [ "$pid" != "-" ]; then
+      printf '%s●%s already running (pid %s)\n' "$GREEN" "$RESET" "$pid"
+      return 0
+    fi
+    launchctl kickstart "gui/$(id -u)/$LABEL"
+  else
+    launchctl load -w "$PLIST"
+  fi
+  sleep 2
+  cmd_status
+}
+
+cmd_stop() {
+  if ! is_loaded; then
+    printf '%s○%s not loaded\n' "$DIM" "$RESET"
+    return 0
+  fi
+  launchctl unload "$PLIST" 2>/dev/null || true
+  printf '%s○%s stopped\n' "$YELLOW" "$RESET"
+}
+
+cmd_restart() {
+  if is_loaded; then
+    launchctl kickstart -k "gui/$(id -u)/$LABEL"
+  else
+    launchctl load -w "$PLIST"
+  fi
+  sleep 2
+  cmd_status
+}
+
+cmd_status() {
+  if is_loaded; then
+    pid=$(pid_of)
+    if [ -n "$pid" ] && [ "$pid" != "-" ]; then
+      etime=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
+      printf '%s%s●%s running%s  pid=%s  uptime=%s\n' "$BOLD" "$GREEN" "$RESET" "$RESET" "$pid" "${etime:-?}"
+    else
+      printf '%s◐%s loaded, no pid yet (starting or crashed)\n' "$YELLOW" "$RESET"
+    fi
+  else
+    printf '%s○%s not loaded\n' "$DIM" "$RESET"
+  fi
+  if [ -f "$LOG" ]; then
+    printf '\n%slast log lines:%s\n' "$DIM" "$RESET"
+    tail -n 6 "$LOG" | sed 's/^/  /'
+  fi
+}
+
+cmd_logs() {
+  mkdir -p "$DATA"
+  [ -f "$LOG" ] || : > "$LOG"
+  [ -f "$ERR" ] || : > "$ERR"
+  tail -n 30 -F "$LOG" "$ERR"
+}
+
+cmd_watch() {
+  exec "$ROOT/scripts/watch.sh" "${1:-all}"
+}
+
+cmd_journal() {
+  arg="${1:-today}"
+  case "$arg" in
+    today)     day=$(date +%Y-%m-%d) ;;
+    yesterday) day=$(date -v-1d +%Y-%m-%d) ;;
+    *)         day="$arg" ;;
+  esac
+  f="$DATA/journal/${day}.md"
+  if [ -f "$f" ]; then cat "$f"; else printf '(no journal for %s)\n' "$day"; fi
+}
+
+cmd_notes() {
+  # Lists notes for the first user directory found under memory/users/.
+  # Single-user installs have one subdir; multi-user installs should pass --user.
+  base="$DATA/memory/users"
+  [ -d "$base" ] || { printf '(no notes yet)\n'; return 0; }
+  dir=$(find "$base" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+  [ -n "$dir" ] || { printf '(no notes yet)\n'; return 0; }
+  ls -1 "$dir" | grep -v '^MEMORY.md$' | sed 's/\.md$//'
+}
+
+case "${1:-help}" in
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  restart) cmd_restart ;;
+  status|st) cmd_status ;;
+  logs|tail|log) cmd_logs ;;
+  watch|w) shift; cmd_watch "${1:-all}" ;;
+  journal|j) shift; cmd_journal "${1:-today}" ;;
+  notes|n) cmd_notes ;;
+  help|-h|--help|"") printf '%s\n' "$USAGE" ;;
+  *) printf '%sunknown:%s %s\n\n%s\n' "$RED" "$RESET" "$1" "$USAGE" >&2; exit 1 ;;
+esac

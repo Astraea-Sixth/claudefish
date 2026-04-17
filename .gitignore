@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Secrets & local config
+config.json
+.env
+.env.*
+*.env
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Runtime data: ignore everything under data/, then whitelist versioned scaffolding.
+data/*
+!data/soul.md
+!data/overlay.md
+!data/agents.md
+!data/CHANGELOG.md
+!data/skills/
+!data/hooks/
+!data/context/
+!data/projects/
+!data/.gitkeep
+
+# Private subdirectories that must never be committed
+data/journal/
+data/memory/
+data/sessions/
+data/workspace/
+data/archive/
+data/approvals/
+data/cron/
+
+# Runtime state under whitelisted dirs
+data/skills/_*
+data/hooks/_*
+data/context/_*
+data/projects/_*
+
+# Databases / derived indexes
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Runtime artifacts
+*.pid
+*.jsonl
+approvals.json
+cron.json
